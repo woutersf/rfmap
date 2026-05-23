@@ -17,25 +17,15 @@ export default function App() {
     if (!isPlaying) return
 
     intervalRef.current = setInterval(() => {
-      setCurrentIndex((prev) => {
-        if (prev >= snapshots.length - 1) {
-          clearInterval(intervalRef.current)
-          setIsPlaying(false)
-          return prev
-        }
-        return prev + 1
-      })
+      setCurrentIndex((prev) => (prev >= snapshots.length - 1 ? 0 : prev + 1))
     }, 400)
 
     return () => clearInterval(intervalRef.current)
   }, [isPlaying])
 
   const handlePlayToggle = useCallback(() => {
-    if (!isPlaying && currentIndex >= snapshots.length - 1) {
-      setCurrentIndex(0)
-    }
     setIsPlaying((p) => !p)
-  }, [isPlaying, currentIndex])
+  }, [])
 
   const current = snapshots[currentIndex]
   const visibleBlasts = blastsAtSnapshot(currentIndex)
