@@ -1,10 +1,11 @@
 import { MapContainer, TileLayer, CircleMarker, Popup, ZoomControl } from 'react-leaflet'
 import HeatmapLayer from './HeatmapLayer'
+import BlastLayer from './BlastLayer'
 import { signalTypeConfig } from '../data/mockData'
 
 const DONETSK = [48.0159, 37.8029]
 
-export default function MapView({ snapshot, heatmapVisible }) {
+export default function MapView({ snapshot, heatmapVisible, visibleBlasts, blastVisible }) {
   return (
     <MapContainer
       center={DONETSK}
@@ -22,6 +23,10 @@ export default function MapView({ snapshot, heatmapVisible }) {
       <ZoomControl position="bottomright" />
 
       {heatmapVisible && <HeatmapLayer points={snapshot.heatPoints} />}
+
+      {blastVisible && (
+        <BlastLayer visibleBlasts={visibleBlasts} currentSnapshotIndex={snapshot.index} />
+      )}
 
       {snapshot.markers.map((m) => {
         const cfg = signalTypeConfig[m.type] ?? { color: '#888' }
