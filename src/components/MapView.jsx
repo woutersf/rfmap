@@ -3,13 +3,13 @@ import HeatmapLayer from './HeatmapLayer'
 import BlastLayer from './BlastLayer'
 import { signalTypeConfig } from '../data/mockData'
 
-const DONETSK = [48.0159, 37.8029]
+const POKROVSK = [48.2833, 37.1667]
 
 export default function MapView({ snapshot, heatmapVisible, visibleBlasts, blastVisible }) {
   return (
     <MapContainer
-      center={DONETSK}
-      zoom={10}
+      center={POKROVSK}
+      zoom={11}
       className="map-container"
       zoomControl={false}
     >

@@ -49,7 +49,7 @@ export default function App() {
         blastVisible={blastVisible}
       />
 
-      {/* ── Top-left: branding ── */}
+      {/*  Top-left: branding  */}
       <div className="ui-header">
         <div className="brand">
           <div className="brand-icon">
@@ -66,7 +66,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Top-right: controls + legend ── */}
+      {/*  Top-right: controls + legend  */}
       <div className="ui-controls">
         <button
           className={`heatmap-btn${heatmapVisible ? ' on' : ' off'}`}
