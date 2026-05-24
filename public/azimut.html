@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AZIMUT — Covert Signal Intelligence</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --blue:      #1565C0;
+      --blue-dark: #0D47A1;
+      --blue-glow: rgba(21,101,192,0.35);
+      --cyan:      #4FC3F7;
+      --cyan-glow: rgba(79,195,247,0.7);
+      --amber:     #FF8F00;
+      --green:     #43A047;
+      --tl-bg:     #0D1B2A;
+      --spec-bg:   #050e1a;
+      --glass:     rgba(255,255,255,0.96);
+      --glass-b:   1px solid rgba(255,255,255,0.7);
+      --shadow:    0 2px 20px rgba(0,0,0,0.14);
+      --r:         12px;
+      --r-sm:      8px;
+      --font: -apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;
+      --mono: 'SF Mono','Fira Code','Cascadia Code','Courier New',monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: var(--tl-bg); }
+
+    .app { width: 100vw; height: 100vh; display: flex; flex-direction: column; font-family: var(--font); }
+
+    /* MAP */
+    #map { flex: 1; width: 100%; min-height: 0; }
+
+    /* SPECTRUM PANEL */
+    .spec-panel {
+      height: 0; overflow: hidden;
+      background: var(--spec-bg);
+      border-top: 1px solid rgba(79,195,247,0.15);
+      transition: height 0.28s ease;
+      flex-shrink: 0;
+    }
+    .spec-panel.open { height: 224px; }
+
+    .spec-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 14px 5px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+    .spec-title {
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      letter-spacing: 2.5px; color: var(--cyan); text-transform: uppercase;
+    }
+    .spec-coord {
+      font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,0.45); letter-spacing: 0.5px;
+    }
+    .spec-min {
+      font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,0.3);
+    }
+    .spec-zone {
+      font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 1px;
+      padding: 2px 7px; border-radius: 100px;
+    }
+    .spec-close {
+      margin-left: auto; background: none; border: none;
+      color: rgba(255,255,255,0.35); cursor: pointer; font-size: 18px; line-height: 1;
+      padding: 1px 6px; border-radius: 4px; transition: color 0.15s;
+    }
+    .spec-close:hover { color: rgba(255,255,255,0.75); }
+
+    #spec-canvas { display: block; width: 100%; }
+
+    /* TIMELINE */
+    .timeline {
+      height: 96px; background: var(--tl-bg);
+      display: flex; align-items: center;
+      padding: 0 20px 0 16px; gap: 16px;
+      flex-shrink: 0;
+      border-top: 1px solid rgba(79,195,247,0.12);
+    }
+    .play-btn {
+      width: 40px; height: 40px; border-radius: 50%; border: none;
+      background: var(--blue); color: #fff; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; padding-left: 2px;
+      transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
+      box-shadow: 0 2px 8px var(--blue-glow);
+    }
+    .play-btn:hover { background: var(--blue-dark); transform: scale(1.08); }
+    .tl-main {
+      flex: 1; display: flex; flex-direction: column; gap: 6px;
+      cursor: pointer; user-select: none;
+    }
+    .tl-labels {
+      display: flex; justify-content: space-between;
+      font-family: var(--mono); font-size: 9.5px;
+      color: rgba(255,255,255,0.3); pointer-events: none; padding: 0 1px;
+    }
+    .tl-track { height: 34px; position: relative; padding: 4px 0; }
+    .tl-rail {
+      position: absolute; top: 50%; left: 0; right: 0;
+      height: 1px; background: rgba(255,255,255,0.12);
+      transform: translateY(-50%); pointer-events: none;
+    }
+    .tl-dot {
+      position: absolute; top: 50%;
+      transform: translate(-50%,-50%);
+      border-radius: 50%; border: none; cursor: pointer; padding: 0;
+      transition: transform 0.1s, box-shadow 0.12s;
+    }
+    .tl-dot:hover { transform: translate(-50%,-50%) scale(1.6); z-index: 2; }
+    .tl-dot.active {
+      background: var(--cyan) !important;
+      box-shadow: 0 0 0 3px rgba(79,195,247,0.25), 0 0 10px var(--cyan-glow);
+      z-index: 3;
+    }
+    .tl-cursor {
+      position: absolute; top: 0; bottom: 0; width: 2px;
+      background: var(--cyan); transform: translateX(-50%);
+      pointer-events: none; border-radius: 1px;
+      box-shadow: 0 0 6px var(--cyan-glow); transition: left 0.08s ease;
+    }
+    .tl-display {
+      display: flex; flex-direction: column; align-items: flex-end;
+      flex-shrink: 0; gap: 2px; min-width: 90px;
+    }
+    .tl-time {
+      font-family: var(--mono); font-size: 22px; font-weight: 500;
+      color: var(--cyan); letter-spacing: 1.5px; line-height: 1;
+    }
+    .tl-sub { font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,0.35); }
+    .tl-zone-label { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.8px; }
+
+    /* OVERLAYS */
+    .ui-header, .ui-controls {
+      background: var(--glass);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border: var(--glass-b); box-shadow: var(--shadow);
+    }
+    .ui-header {
+      position: absolute; top: 16px; left: 16px; z-index: 1000;
+      border-radius: var(--r); padding: 10px 14px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-icon {
+      width: 38px; height: 38px; border-radius: var(--r-sm);
+      background: var(--amber);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(255,143,0,0.45);
+    }
+    .brand-text { display: flex; flex-direction: column; gap: 2px; }
+    .brand-name {
+      font-size: 17px; font-weight: 800; letter-spacing: 3px;
+      color: #5D4037; line-height: 1;
+    }
+    .brand-sub {
+      font-size: 10px; font-weight: 500; letter-spacing: 0.8px;
+      color: #888; text-transform: uppercase;
+    }
+    .nav-link {
+      font-size: 11px; color: var(--blue); text-decoration: none;
+      font-weight: 600; letter-spacing: 0.5px;
+      padding: 4px 9px; border-radius: 6px;
+      background: rgba(21,101,192,0.08); transition: background 0.15s;
+    }
+    .nav-link:hover { background: rgba(21,101,192,0.16); }
+
+    .ui-controls {
+      position: absolute; top: 16px; right: 16px; z-index: 1000;
+      border-radius: var(--r); padding: 12px;
+      display: flex; flex-direction: column; gap: 10px; min-width: 178px;
+    }
+    .toggle-btn {
+      display: flex; align-items: center; gap: 7px;
+      padding: 9px 13px; border: none; border-radius: var(--r-sm);
+      cursor: pointer; font-family: var(--font); font-size: 12.5px; font-weight: 500;
+      transition: transform 0.15s, box-shadow 0.15s; white-space: nowrap; line-height: 1;
+    }
+    .toggle-btn.on  { background: var(--blue); color: #fff; box-shadow: 0 2px 10px var(--blue-glow); }
+    .toggle-btn.off { background: #f0f0f0; color: #666; border: 1px solid #ddd; }
+    .toggle-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 18px rgba(0,0,0,0.16); }
+    .legend {
+      background: var(--glass); border: var(--glass-b);
+      border-radius: var(--r-sm); padding: 9px 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .legend-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #444; font-weight: 500; }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .ctrl-hint { font-size: 9.5px; color: rgba(255,255,255,0.3); font-family: var(--mono); text-align: center; line-height: 1.5; }
+
+    /* LEAFLET OVERRIDES */
+    .leaflet-control-attribution { font-size: 9px !important; background: rgba(255,255,255,0.65) !important; }
+    .leaflet-popup-content-wrapper { border-radius: var(--r-sm) !important; font-family: var(--font) !important; font-size: 13px !important; box-shadow: var(--shadow) !important; }
+    .leaflet-popup-tip { box-shadow: none !important; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <div id="map"></div>
+
+  <!-- Header -->
+  <div class="ui-header">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <circle cx="11" cy="11" r="9" stroke="white" stroke-width="1.5"/>
+          <polygon points="11,3 13.5,11 11,13.5 8.5,11" fill="white"/>
+          <polygon points="11,19 13.5,11 11,8.5 8.5,11" fill="rgba(255,255,255,0.35)"/>
+          <circle cx="11" cy="11" r="1.8" fill="white"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">AZIMUT</span>
+        <span class="brand-sub">Covert Signal Intelligence</span>
+      </div>
+    </div>
+    <a class="nav-link" href="./index.html">RFMAP</a>
+  </div>
+
+  <!-- Controls -->
+  <div class="ui-controls">
+    <button class="toggle-btn on" id="heatmap-btn" onclick="toggleHeatmap()">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor">
+        <path d="M7.5 0C5 3 3 5 3 8a4.5 4.5 0 009 0c0-3-2-5-4.5-8zm0 13a2.5 2.5 0 01-2.5-2.5c0-1.5 1-2.5 2.5-4.5 1.5 2 2.5 3 2.5 4.5A2.5 2.5 0 017.5 13z"/>
+      </svg>
+      RF Heatmap <strong id="heatmap-label">ON</strong>
+    </button>
+    <div class="legend">
+      <div class="legend-row"><span class="legend-dot" style="background:#5B8DB8"></span>Low signal</div>
+      <div class="legend-row"><span class="legend-dot" style="background:#FFA726"></span>Moderate</div>
+      <div class="legend-row"><span class="legend-dot" style="background:#EF6C00"></span>Strong</div>
+      <div class="legend-row"><span class="legend-dot" style="background:#E53935"></span>Hotspot</div>
+    </div>
+    <div class="ctrl-hint">Click waypoint or dot<br>for spectrum view</div>
+  </div>
+
+  <!-- Spectrum panel -->
+  <div class="spec-panel" id="spec-panel">
+    <div class="spec-header">
+      <span class="spec-title">RF Spectrum</span>
+      <span class="spec-coord" id="spec-coord"></span>
+      <span class="spec-min" id="spec-min"></span>
+      <span class="spec-zone" id="spec-zone"></span>
+      <button class="spec-close" onclick="closeSpectrum()">&#x2715;</button>
+    </div>
+    <canvas id="spec-canvas"></canvas>
+  </div>
+
+  <!-- Timeline -->
+  <div class="timeline">
+    <button class="play-btn" id="play-btn" onclick="togglePlay()">
+      <svg id="icon-play"  width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,1 13,7 3,13"/></svg>
+      <svg id="icon-pause" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="display:none"><rect x="2" y="1" width="4" height="12" rx="1"/><rect x="8" y="1" width="4" height="12" rx="1"/></svg>
+    </button>
+
+    <div class="tl-main" id="tl-main" onclick="handleTrackClick(event)">
+      <div class="tl-labels">
+        <span>T+00:00</span><span>T+15:00</span><span>T+30:00</span><span>T+45:00</span><span>T+60:00</span>
+      </div>
+      <div class="tl-track" id="tl-track">
+        <div class="tl-rail"></div>
+        <div class="tl-cursor" id="tl-cursor"></div>
+      </div>
+    </div>
+
+    <div class="tl-display">
+      <div class="tl-time" id="tl-time">00:00</div>
+      <div class="tl-sub" id="tl-sub">T+0 min</div>
+      <div class="tl-zone-label" id="tl-zlabel"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+'use strict'
+
+// ── UTILS ────────────────────────────────────────────────────────────────────
+
+function lerp(a, b, t) { return a + (b - a) * t }
+
+function seededRng(seed) {
+  let s = ((seed % 2147483647) + 2147483647) % 2147483647 || 1
+  return () => { s = s * 16807 % 2147483647; return (s - 1) / 2147483646 }
+}
+
+// ── SIGNAL ZONE DEFINITIONS ──────────────────────────────────────────────────
+
+const ZONES = {
+  low: {
+    label: 'CLEAR', labelColor: '#78909C', heatI: 0.18, noiseFloor: -108,
+    peaks: [
+      { f: 433,  p: -95, bw: 1.2 },
+      { f: 868,  p: -104, bw: 0.8 },
+    ]
+  },
+  entering: {
+    label: 'AOI ENTRY', labelColor: '#42A5F5', heatI: 0.35, noiseFloor: -103,
+    peaks: [
+      { f: 433,  p: -86, bw: 1.4 },
+      { f: 868,  p: -93, bw: 1.0 },
+      { f: 2400, p: -100, bw: 5 },
+    ]
+  },
+  moderate: {
+    label: 'ACTIVE', labelColor: '#FFA726', heatI: 0.54, noiseFloor: -99,
+    peaks: [
+      { f: 433,  p: -79, bw: 1.6 },
+      { f: 868,  p: -83, bw: 1.2 },
+      { f: 2400, p: -84, bw: 6 },
+      { f: 5800, p: -97, bw: 10 },
+    ]
+  },
+  high: {
+    label: 'HIGH ACTIVITY', labelColor: '#EF6C00', heatI: 0.76, noiseFloor: -94,
+    peaks: [
+      { f: 433,  p: -67, bw: 2.0 },
+      { f: 868,  p: -71, bw: 1.5 },
+      { f: 915,  p: -75, bw: 1.2 },
+      { f: 1575, p: -79, bw: 2.5 },
+      { f: 2400, p: -65, bw: 7 },
+      { f: 5800, p: -79, bw: 12 },
+    ]
+  },
+  hotspot: {
+    label: 'ENEMY HOTSPOT', labelColor: '#E53935', heatI: 1.0, noiseFloor: -87,
+    peaks: [
+      { f: 433,  p: -57, bw: 2.5 },
+      { f: 868,  p: -61, bw: 2.0 },
+      { f: 915,  p: -65, bw: 1.5 },
+      { f: 1090, p: -70, bw: 1.5 },
+      { f: 1575, p: -67, bw: 3.0 },
+      { f: 2400, p: -59, bw: 8 },
+      { f: 5800, p: -62, bw: 14 },
+    ]
+  }
+}
+
+const ZONE_DOT_COLOR = {
+  low: '#5B8DB8', entering: '#5B8DB8',
+  moderate: '#FFA726', high: '#EF6C00', hotspot: '#E53935'
+}
+
+function minuteToZone(m) {
+  if (m <= 6)  return 'low'
+  if (m <= 13) return 'entering'
+  if (m <= 21) return 'moderate'
+  if (m <= 29) return 'high'
+  if (m <= 38) return 'hotspot'
+  if (m <= 46) return 'high'
+  if (m <= 52) return 'moderate'
+  if (m <= 56) return 'entering'
+  return 'low'
+}
+
+// ── WAYPOINT GENERATION ──────────────────────────────────────────────────────
+// Winding patrol through Pokrovsk streets: start SW, wind through city,
+// reach hotspot near city center, return via southern route.
+
+const ANCHORS = [
+  [0,  48.2778, 37.1518],
+  [5,  48.2793, 37.1550],
+  [10, 48.2810, 37.1582],
+  [15, 48.2826, 37.1610],
+  [19, 48.2842, 37.1638],
+  [23, 48.2853, 37.1672],
+  [27, 48.2860, 37.1710],
+  [31, 48.2858, 37.1748],
+  [35, 48.2845, 37.1775],
+  [39, 48.2822, 37.1784],
+  [43, 48.2798, 37.1762],
+  [47, 48.2778, 37.1728],
+  [51, 48.2762, 37.1688],
+  [54, 48.2756, 37.1640],
+  [57, 48.2762, 37.1585],
+  [59, 48.2774, 37.1530],
+]
+
+function generateWaypoints() {
+  const wps = []
+  for (let m = 0; m < 60; m++) {
+    let a0 = ANCHORS[0], a1 = ANCHORS[1]
+    for (let i = 0; i < ANCHORS.length - 1; i++) {
+      if (m >= ANCHORS[i][0] && m <= ANCHORS[i+1][0]) {
+        a0 = ANCHORS[i]; a1 = ANCHORS[i+1]; break
+      }
+    }
+    const seg = (a1[0] === a0[0]) ? 0 : (m - a0[0]) / (a1[0] - a0[0])
+    const r = seededRng(m * 137 + 42)
+    const j = 0.00032
+    const lat = lerp(a0[1], a1[1], seg) + (r() - 0.5) * j
+    const lng = lerp(a0[2], a1[2], seg) + (r() - 0.5) * j * 1.6
+    wps.push({ minute: m, lat, lng, zone: minuteToZone(m) })
+  }
+  return wps
+}
+
+const WPS = generateWaypoints()
+const ALL_LATLNGS = WPS.map(w => [w.lat, w.lng])
+
+// ── MAP SETUP ────────────────────────────────────────────────────────────────
+
+const map = L.map('map', {
+  center: [48.2818, 37.1652],
+  zoom: 14,
+  zoomControl: false,
+})
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  subdomains: 'abcd', maxZoom: 20,
+}).addTo(map)
+
+L.control.zoom({ position: 'bottomright' }).addTo(map)
+
+// Ghost route (full path, dashed)
+L.polyline(ALL_LATLNGS, { color: '#aaa', weight: 1.5, opacity: 0.28, dashArray: '5 5' }).addTo(map)
+
+// Active route (up to current minute)
+const activeLine = L.polyline([], { color: '#FF8F00', weight: 3.5, opacity: 0.9 }).addTo(map)
+
+// Waypoint markers (clickable)
+const wpMarkers = WPS.map((wp, i) => {
+  const color = ZONE_DOT_COLOR[wp.zone]
+  const m = L.circleMarker([wp.lat, wp.lng], {
+    radius: 4, color, fillColor: color, fillOpacity: 0.75, weight: 1.5,
+  }).addTo(map)
+  m.bindPopup(
+    `<strong>T+${String(i).padStart(2,'0')}:00</strong><br>` +
+    `${ZONES[wp.zone].label}<br>` +
+    `<small style="color:#999">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</small>`
+  )
+  m.on('click', () => { selectMinute(i); openSpectrum(i) })
+  return m
+})
+
+// Current position marker
+const posMarker = L.circleMarker(ALL_LATLNGS[0], {
+  radius: 9, color: '#4FC3F7', fillColor: '#4FC3F7', fillOpacity: 0.9, weight: 2,
+}).addTo(map)
+
+// ── HEATMAP ──────────────────────────────────────────────────────────────────
+
+let heatmapOn = true
+let heatLayer = null
+
+function buildHeatPoints(upToMinute) {
+  const pts = []
+  WPS.forEach((wp, i) => {
+    if (i > upToMinute) return
+    const zone = ZONES[wp.zone]
+    const age = upToMinute - i
+    const fade = Math.max(0.15, 1 - age * 0.022)
+    const count = wp.zone === 'hotspot' ? 8 : wp.zone === 'high' ? 6 : 4
+    for (let j = 0; j < count; j++) {
+      const r = seededRng(i * 97 + j * 13 + 5000)
+      pts.push([
+        wp.lat + (r() - 0.5) * 0.0009,
+        wp.lng + (r() - 0.5) * 0.0013,
+        zone.heatI * fade
+      ])
+    }
+  })
+  return pts
+}
+
+function updateHeatmap(minute) {
+  if (heatLayer) { heatLayer.remove(); heatLayer = null }
+  if (!heatmapOn) return
+  heatLayer = L.heatLayer(buildHeatPoints(minute), {
+    radius: 20, blur: 14, maxZoom: 14, max: 1.0,
+    gradient: { 0.0: '#64B5F6', 0.3: '#26C6DA', 0.55: '#FFCA28', 0.8: '#FF7043', 1.0: '#E53935' }
+  }).addTo(map)
+}
+
+function toggleHeatmap() {
+  heatmapOn = !heatmapOn
+  document.getElementById('heatmap-btn').className = 'toggle-btn ' + (heatmapOn ? 'on' : 'off')
+  document.getElementById('heatmap-label').textContent = heatmapOn ? 'ON' : 'OFF'
+  updateHeatmap(currentMinute)
+}
+
+// ── TIMELINE ─────────────────────────────────────────────────────────────────
+
+let currentMinute = 30
+let isPlaying = false
+let playTimer = null
+
+const tlTrack = document.getElementById('tl-track')
+WPS.forEach((wp, i) => {
+  const zone = ZONES[wp.zone]
+  const pct = (i / 59) * 100
+  const size = 4 + zone.heatI * 9
+  const color = ZONE_DOT_COLOR[wp.zone]
+  const dot = document.createElement('button')
+  dot.id = 'dot-' + i
+  dot.className = 'tl-dot'
+  dot.title = `T+${String(i).padStart(2,'0')}:00  ${zone.label}`
+  dot.style.cssText = `left:${pct}%;width:${size}px;height:${size}px;background:${color}88;`
+  dot.addEventListener('click', e => {
+    e.stopPropagation()
+    selectMinute(i)
+    if (specPanelOpen) updateSpectrumWaypoint(i)
+    else openSpectrum(i)
+  })
+  tlTrack.appendChild(dot)
+})
+
+function handleTrackClick(e) {
+  const rect = document.getElementById('tl-track').getBoundingClientRect()
+  const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  selectMinute(Math.round(frac * 59))
+}
+
+function selectMinute(m) {
+  document.getElementById('dot-' + currentMinute)?.classList.remove('active')
+  currentMinute = m
+  document.getElementById('dot-' + m)?.classList.add('active')
+
+  const wp = WPS[m]
+  const zone = ZONES[wp.zone]
+  const mm = String(m).padStart(2, '0')
+
+  document.getElementById('tl-cursor').style.left = (m / 59 * 100) + '%'
+  document.getElementById('tl-time').textContent = mm + ':00'
+  document.getElementById('tl-sub').textContent  = 'T+' + m + ' min'
+  document.getElementById('tl-zlabel').textContent = zone.label
+  document.getElementById('tl-zlabel').style.color = zone.labelColor
+
+  posMarker.setLatLng([wp.lat, wp.lng])
+  activeLine.setLatLngs(ALL_LATLNGS.slice(0, m + 1))
+  updateHeatmap(m)
+
+  if (specPanelOpen) updateSpectrumWaypoint(m)
+}
+
+function togglePlay() {
+  isPlaying = !isPlaying
+  document.getElementById('icon-play').style.display  = isPlaying ? 'none'  : 'block'
+  document.getElementById('icon-pause').style.display = isPlaying ? 'block' : 'none'
+  if (isPlaying) {
+    playTimer = setInterval(() => selectMinute((currentMinute + 1) % 60), 500)
+  } else {
+    clearInterval(playTimer)
+  }
+}
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft')  selectMinute(Math.max(0,  currentMinute - 1))
+  if (e.key === 'ArrowRight') selectMinute(Math.min(59, currentMinute + 1))
+  if (e.key === ' ')  { e.preventDefault(); togglePlay() }
+  if (e.key === 'Escape') closeSpectrum()
+})
+
+// ── SPECTRUM (FFT + WATERFALL) ────────────────────────────────────────────────
+
+let specPanelOpen = false
+let specMinute    = 0
+let animFrame     = null
+let animTime      = 0
+let wfBuffer      = []   // rows for waterfall: newest first
+
+const BANDS = [
+  { f: 433,  label: 'DRONE CTRL', color: '#FF7043' },
+  { f: 868,  label: 'LORA/TAC',   color: '#FFA726' },
+  { f: 1575, label: 'GPS L1',     color: '#66BB6A' },
+  { f: 2400, label: 'FPV 2.4G',   color: '#29B6F6' },
+  { f: 5800, label: 'FPV 5.8G',   color: '#AB47BC' },
+]
+
+function openSpectrum(minute) {
+  specMinute = minute
+  wfBuffer = []
+  specPanelOpen = true
+  document.getElementById('spec-panel').classList.add('open')
+  updateSpectrumHeader(minute)
+  if (animFrame) cancelAnimationFrame(animFrame)
+  // Wait for panel CSS transition to start before sizing canvas
+  setTimeout(() => { resizeCanvas(); runAnimation() }, 40)
+}
+
+function closeSpectrum() {
+  specPanelOpen = false
+  document.getElementById('spec-panel').classList.remove('open')
+  if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null }
+}
+
+function updateSpectrumWaypoint(m) {
+  if (m !== specMinute) {
+    specMinute = m
+    wfBuffer = []
+    updateSpectrumHeader(m)
+  }
+}
+
+function updateSpectrumHeader(m) {
+  const wp   = WPS[m]
+  const zone = ZONES[wp.zone]
+  document.getElementById('spec-coord').textContent =
+    wp.lat.toFixed(5) + '°N  ' + wp.lng.toFixed(5) + '°E'
+  document.getElementById('spec-min').textContent =
+    'T+' + String(m).padStart(2,'0') + ':00'
+  const zEl = document.getElementById('spec-zone')
+  zEl.textContent = zone.label
+  zEl.style.color      = zone.labelColor
+  zEl.style.background = zone.labelColor + '22'
+}
+
+function computePower(freqMHz, minute, t) {
+  const zone = ZONES[WPS[minute].zone]
+  const n = Math.sin(t * 0.09 + freqMHz * 0.019) * 1.3
+          + Math.sin(t * 0.14 + freqMHz * 0.047) * 0.75
+          + (Math.random() - 0.5) * 1.9
+  let pwr = zone.noiseFloor + n
+  for (const pk of zone.peaks) {
+    const sigma = pk.bw * 7
+    const dist  = Math.abs(freqMHz - pk.f)
+    if (dist < sigma * 4.5) {
+      const g      = Math.exp(-0.5 * (dist / sigma) ** 2)
+      const contrib = (pk.p - zone.noiseFloor) * g
+      pwr = Math.max(pwr, zone.noiseFloor + contrib + n * 0.28)
+    }
+  }
+  return Math.max(-120, Math.min(-20, pwr))
+}
+
+// Thermal colormap: black->blue->cyan->green->yellow->red->white
+function powerToRGB(t) {
+  t = Math.max(0, Math.min(1, t))
+  if (t < 0.2)  { const u=t/0.2;          return [0,            0,                  Math.round(u*200+10)] }
+  if (t < 0.4)  { const u=(t-0.2)/0.2;    return [0,            Math.round(u*220),  Math.round((1-u)*210+10)] }
+  if (t < 0.6)  { const u=(t-0.4)/0.2;    return [0,            220,                Math.round((1-u)*220)] }
+  if (t < 0.75) { const u=(t-0.6)/0.15;   return [Math.round(u*255), 220,           0] }
+  if (t < 0.9)  { const u=(t-0.75)/0.15;  return [255, Math.round((1-u)*220+20),    0] }
+  {               const u=(t-0.9)/0.1;    return [255, Math.round(u*255),            Math.round(u*255)] }
+}
+
+function freqToX(freqMHz, W) {
+  return (freqMHz - 400) / (6000 - 400) * W
+}
+
+function runAnimation() {
+  if (!specPanelOpen) return
+
+  animTime += 0.55
+
+  const canvas = document.getElementById('spec-canvas')
+  const W = canvas.width
+  const H = canvas.height
+  if (W === 0 || H === 0) { animFrame = requestAnimationFrame(runAnimation); return }
+
+  const FFT_H   = Math.round(H * 0.56)
+  const WFALL_H = H - FFT_H
+  const ctx = canvas.getContext('2d')
+
+  // Compute spectrum
+  const spec = new Float32Array(W)
+  for (let x = 0; x < W; x++) {
+    spec[x] = computePower(400 + (x / W) * 5600, specMinute, animTime)
+  }
+
+  // FFT background
+  ctx.fillStyle = '#050e1a'
+  ctx.fillRect(0, 0, W, FFT_H)
+
+  // dB grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.055)'
+  ctx.lineWidth = 1
+  for (let db = -120; db <= -20; db += 20) {
+    const y = FFT_H * (1 - (db + 120) / 100)
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
+  }
+
+  // dB labels
+  const lblFont = Math.max(9, Math.round(W * 0.009)) + 'px ' + "'Courier New',monospace"
+  ctx.fillStyle = 'rgba(255,255,255,0.22)'
+  ctx.font = lblFont; ctx.textAlign = 'left'
+  for (let db = -100; db >= -120; db -= 20) {
+    const y = FFT_H * (1 - (db + 120) / 100) - 2
+    if (y > 10) ctx.fillText(db + ' dB', 4, y)
+  }
+
+  // Band markers
+  const activeZone = ZONES[WPS[specMinute].zone]
+  ctx.font = 'bold ' + Math.max(8, Math.round(W * 0.0078)) + 'px ' + "'Courier New',monospace"
+  ctx.setLineDash([3,5])
+  BANDS.forEach(band => {
+    const x = freqToX(band.f, W)
+    const isActive = activeZone.peaks.some(p => Math.abs(p.f - band.f) < 60)
+    ctx.strokeStyle = isActive ? band.color + '55' : 'rgba(255,255,255,0.08)'
+    ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(x, 14); ctx.lineTo(x, FFT_H); ctx.stroke()
+    if (isActive) {
+      ctx.fillStyle = band.color
+      ctx.textAlign = 'center'
+      ctx.fillText(band.label, Math.min(W - 30, Math.max(30, x)), 11)
+    }
+  })
+  ctx.setLineDash([])
+
+  // Spectrum fill
+  const grad = ctx.createLinearGradient(0, 0, 0, FFT_H)
+  grad.addColorStop(0.0, 'rgba(229,57,53,0.88)')
+  grad.addColorStop(0.25,'rgba(255,152,0,0.72)')
+  grad.addColorStop(0.55,'rgba(79,195,247,0.5)')
+  grad.addColorStop(1.0, 'rgba(79,195,247,0.03)')
+  ctx.fillStyle = grad
+  ctx.beginPath()
+  ctx.moveTo(0, FFT_H)
+  for (let x = 0; x < W; x++) {
+    const y = FFT_H * (1 - (spec[x] + 120) / 100)
+    x === 0 ? ctx.moveTo(0, FFT_H) : null
+    ctx.lineTo(x, y)
+  }
+  ctx.lineTo(W, FFT_H)
+  ctx.closePath()
+  ctx.fill()
+
+  // Spectrum line
+  ctx.strokeStyle = 'rgba(255,255,255,0.82)'
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  for (let x = 0; x < W; x++) {
+    const y = FFT_H * (1 - (spec[x] + 120) / 100)
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+  }
+  ctx.stroke()
+
+  // Frequency axis
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'
+  ctx.font = lblFont; ctx.textAlign = 'center'
+  ;[400, 1000, 2000, 3000, 4000, 5000, 6000].forEach(f => {
+    ctx.fillText(f >= 1000 ? (f/1000)+'G' : f+'M', freqToX(f, W), FFT_H - 3)
+  })
+
+  // Waterfall row
+  const rowData = new Uint8Array(W)
+  for (let x = 0; x < W; x++) {
+    rowData[x] = Math.round(Math.max(0, Math.min(255, ((spec[x] + 120) / 100) * 255)))
+  }
+  wfBuffer.unshift(rowData)
+  if (wfBuffer.length > WFALL_H) wfBuffer.pop()
+
+  // Draw waterfall via ImageData
+  const imgData = ctx.createImageData(W, WFALL_H)
+  for (let y = 0; y < Math.min(WFALL_H, wfBuffer.length); y++) {
+    const row = wfBuffer[y]
+    for (let x = 0; x < W; x++) {
+      const [r, g, b] = powerToRGB(row[x] / 255)
+      const i = (y * W + x) * 4
+      imgData.data[i]   = r
+      imgData.data[i+1] = g
+      imgData.data[i+2] = b
+      imgData.data[i+3] = 255
+    }
+  }
+  ctx.putImageData(imgData, 0, FFT_H)
+
+  // Waterfall label
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'
+  ctx.font = lblFont; ctx.textAlign = 'left'
+  ctx.fillText('WATERFALL', 4, FFT_H + 12)
+
+  animFrame = requestAnimationFrame(runAnimation)
+}
+
+function resizeCanvas() {
+  const canvas = document.getElementById('spec-canvas')
+  const panel  = document.getElementById('spec-panel')
+  const W = panel.clientWidth
+  const H = 190
+  if (W > 0) { canvas.width = W; canvas.height = H }
+}
+
+window.addEventListener('resize', () => { if (specPanelOpen) resizeCanvas() })
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+
+selectMinute(30)
+</script>
+</body>
+</html>
